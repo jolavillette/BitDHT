@@ -98,7 +98,28 @@ int bdQueryManager::iterateQueries(int maxQueries)
 	
 	bdId id;
 	bdNodeId targetNodeId;
-	
+
+	/* measure queries first, up to half the budget: in the round-robin
+	 * below they would get one send per pass over every friend query */
+	{
+		int measureBudget = maxQueries / 2;
+		if ((maxQueries > 0) && (measureBudget < 1))
+			measureBudget = 1;
+		std::list<bdQuery *>::iterator mit;
+		for(mit = mLocalQueries.begin(); mit != mLocalQueries.end(); mit++)
+		{
+			if (!((*mit)->mQueryFlags & BITDHT_QFLAGS_MEASURE))
+				continue;
+			for(int s = 0; (s < 2) && (sentQueries < measureBudget); s++)
+			{
+				if (!(*mit)->nextQuery(id, targetNodeId))
+					break;
+				mPub->send_query(&id, &targetNodeId, false);
+				sentQueries++;
+			}
+		}
+	}
+
 	while((i < numQueries) && (sentQueries < maxQueries))
 	{
 		bdQuery *query = mLocalQueries.front();

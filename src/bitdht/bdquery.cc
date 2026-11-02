@@ -133,9 +133,13 @@ int bdQuery::nextQuery(bdId &id, bdNodeId &targetNodeId)
 	}
 
 	bool notFinished = false;
+	const bool measure = (mQueryFlags & BITDHT_QFLAGS_MEASURE);
+	/* a measure query stops at BITDHT_MAX_QUERY_AGE even with peers left to
+	 * ask (the check below is only reached once there are none) */
+	const bool measureExpired = measure && (now - mQueryTS > BITDHT_MAX_QUERY_AGE);
 	std::multimap<bdMetric, bdPeer>::iterator it;
 	int i = 0;
-	for(it = mClosest.begin(); it != mClosest.end(); it++, i++)
+	for(it = mClosest.begin(); (it != mClosest.end()) && !measureExpired; it++, i++)
 	{
 		bool queryPeer = false;
 
@@ -169,7 +173,18 @@ int bdQuery::nextQuery(bdId &id, bdNodeId &targetNodeId)
 		 * Need to wait at least EXPECTED_REPLY, to make sure their answers are pinged
 		 */	
 
-		if (((it->second.mLastRecvTime == 0) || (now - it->second.mLastRecvTime < EXPECTED_REPLY)) && 
+		if (measure)
+		{
+			/* not finished while one of the closest is unasked, or asked
+			 * less than EXPECTED_REPLY ago without answering yet: a peer
+			 * that never answers must not hold the query forever */
+			bool unasked = (it->second.mLastSendTime == 0);
+			bool waiting = (it->second.mLastRecvTime < it->second.mLastSendTime) &&
+			               (now - it->second.mLastSendTime < EXPECTED_REPLY);
+			if ((unasked || waiting) && (i < mFns->bdNumQueryNodes()))
+				notFinished = true;
+		}
+		else if (((it->second.mLastRecvTime == 0) || (now - it->second.mLastRecvTime < EXPECTED_REPLY)) && 
 				(i < mFns->bdNumQueryNodes()))
 		{
 #ifdef DEBUG_QUERY 
@@ -257,7 +272,7 @@ int bdQuery::nextQuery(bdId &id, bdNodeId &targetNodeId)
 		{
 			mState = BITDHT_QUERY_SUCCESS;
 		}
-		else if ((mPotentialPeers.begin()->second).mPeerId.id == mId)
+		else if ((!mPotentialPeers.empty()) && (mPotentialPeers.begin()->second).mPeerId.id == mId)
 		{
 			mState = BITDHT_QUERY_PEER_UNREACHABLE;
 		}

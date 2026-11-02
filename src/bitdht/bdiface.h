@@ -305,6 +305,13 @@ class bdQuerySummary
 #define BITDHT_QFLAGS_DO_IDLE		0x0002
 #define BITDHT_QFLAGS_INTERNAL		0x0004  // runs through startup. (limited callback)
 #define BITDHT_QFLAGS_UPDATES		0x0008  // Do regular updates.
+/* Network size sampling: the target is asked for directly (never disguised),
+ * the query gets its sends before the others, a peer that does not answer
+ * within EXPECTED_REPLY no longer holds it, and it ends after
+ * BITDHT_MAX_QUERY_AGE whatever happens. Once ended it is kept, for the
+ * caller to read with getDhtQueryStatus(), until removeFindNode().
+ * Meant for a few short-lived queries towards random ids. */
+#define BITDHT_QFLAGS_MEASURE		0x0010
 
 /* Connect Callback Flags */
 #define BITDHT_CONNECT_CB_AUTH		1
