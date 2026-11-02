@@ -138,6 +138,64 @@ int bdQuery::nextQuery(bdId &id, bdNodeId &targetNodeId)
 	 * ask (the check below is only reached once there are none) */
 	const bool measureExpired = measure && (now - mQueryTS > BITDHT_MAX_QUERY_AGE);
 	std::multimap<bdMetric, bdPeer>::iterator it;
+
+	if (measure && !measureExpired)
+	{
+		/* Plain Kademlia step: a node returned by a find_node reply only
+		 * reaches mClosest once it answers the ping bdNode queues for it, and
+		 * that FIFO is shared with every other query and the table upkeep.
+		 * The query then ends on the first K answers long before the closer
+		 * nodes are pinged, which overestimates d_k. So ask the potential
+		 * peers closer than the K-th answered closest directly, once each,
+		 * and do not finish while one of them may still answer. */
+		const bdMetric *limit = NULL;
+		uint32_t answered = 0;
+		for(it = mClosest.begin(); it != mClosest.end(); it++)
+		{
+			if (it->second.mLastRecvTime != 0)
+			{
+				if (++answered == mFns->bdNumQueryNodes())
+				{
+					limit = &(it->first);
+					break;
+				}
+			}
+		}
+
+		std::multimap<bdMetric, bdPeer>::iterator pit;
+		for(pit = mPotentialPeers.begin(); pit != mPotentialPeers.end(); pit++)
+		{
+			if (limit && !(pit->first < *limit))
+				break;
+
+			/* already in mClosest: handled by the loop below */
+			bool inClosest = false;
+			std::multimap<bdMetric, bdPeer>::iterator cit, ceit;
+			ceit = mClosest.upper_bound(pit->first);
+			for(cit = mClosest.lower_bound(pit->first); cit != ceit; cit++)
+			{
+				if (mFns->bdSimilarId(&(pit->second.mPeerId), &(cit->second.mPeerId)))
+				{
+					inClosest = true;
+					break;
+				}
+			}
+			if (inClosest)
+				continue;
+
+			std::map<bdMetric, time_t>::iterator ait = mMeasureAsked.find(pit->first);
+			if (ait == mMeasureAsked.end())
+			{
+				mMeasureAsked[pit->first] = now;
+				id = pit->second.mPeerId;
+				targetNodeId = mId;
+				return 1;
+			}
+			if (now - ait->second < EXPECTED_REPLY)
+				notFinished = true;
+		}
+	}
+
 	int i = 0;
 	for(it = mClosest.begin(); (it != mClosest.end()) && !measureExpired; it++, i++)
 	{
