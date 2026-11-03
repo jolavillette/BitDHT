@@ -286,7 +286,13 @@ class bdQuerySummary
         std::multimap<bdMetric, bdPeer>  mPotentialPeers;
         std::list<bdPeer>  mProxiesUnknown;
         std::list<bdPeer>  mProxiesFlagged;
+
+        /* BITDHT_QFLAGS_MEASURE: how many distinct nodes reported each peer
+         * (by distance to the target, capped at BITDHT_MEASURE_MAX_REPORTERS).
+         * A peer reported by one node only may be stale or forged. */
+        std::map<bdMetric, uint32_t> mReporters;
 };
+#define BITDHT_MEASURE_MAX_REPORTERS	4
 
 
 
@@ -312,6 +318,13 @@ class bdQuerySummary
  * caller to read with getDhtQueryStatus(), until removeFindNode().
  * Meant for a few short-lived queries towards random ids. */
 #define BITDHT_QFLAGS_MEASURE		0x0010
+/* With BITDHT_QFLAGS_MEASURE: walk the nodes of our own application only.
+ * The query starts from the DHT_APPL peers of our table and sends localnet
+ * find_nodes, which such peers answer with their own DHT_APPL neighbours. A
+ * peer enters the query only when a DHT_APPL message came from it or a
+ * queried application peer reported it. Gives the closest application nodes
+ * to a random target, i.e. their density in the id space. */
+#define BITDHT_QFLAGS_MEASURE_APPL	0x0020
 
 /* Connect Callback Flags */
 #define BITDHT_CONNECT_CB_AUTH		1

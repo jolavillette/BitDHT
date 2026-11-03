@@ -58,6 +58,8 @@ bdQuery::bdQuery(const bdNodeId *id, std::list<bdId> &startList, uint32_t queryF
 	std::list<bdId>::iterator it;
 	for(it = startList.begin(); it != startList.end(); it++)
 	{
+		if (queryFlags & BITDHT_QFLAGS_MEASURE_APPL)
+			mApplVouched.insert(it->id);
 		bdPeer peer;
 		peer.mLastSendTime = 0;
 		peer.mLastRecvTime = 0;
@@ -426,6 +428,12 @@ int bdQuery::addClosestPeer(const bdId *id, uint32_t mode)
 #ifdef DEBUG_QUERY 
         fprintf(stderr, "Peer not in Query\n");
 #endif
+	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL) &&
+	    (mApplVouched.find(id->id) == mApplVouched.end()))
+	{
+		/* a node of another application, met by some other query */
+		return 0;
+	}
 	/* firstly drop unresponded (bit ugly - but hard structure to extract from) */
 	int j;
 	for(j = 0; j < toDrop; j++)
@@ -513,6 +521,8 @@ int bdQuery::addClosestPeer(const bdId *id, uint32_t mode)
 
 int bdQuery::addPeer(const bdId *id, uint32_t mode)
 {
+	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL) && (mode & BITDHT_PEER_STATUS_DHT_APPL))
+		mApplVouched.insert(id->id);
 	addClosestPeer(id, mode);
 	updatePotentialPeer(id, mode, PEER_MESSAGE);
 	updateProxy(id, mode);
@@ -523,6 +533,22 @@ int bdQuery::addPotentialPeer(const bdId *id, const bdId *src, uint32_t srcmode)
 {
 	// is it a Potential Proxy? Always Check This.
 	addProxy(id, src, srcmode);
+
+	if (mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL)
+	{
+		/* only what an application peer told us */
+		if ((src == NULL) || (mApplVouched.find(src->id) == mApplVouched.end()))
+			return 0;
+		mApplVouched.insert(id->id);
+	}
+	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE) && (src != NULL))
+	{
+		bdMetric dist;
+		mFns->bdDistance(&mId, &(id->id), &dist);
+		std::set<bdNodeId> &rep = mReporters[dist];
+		if (rep.size() < BITDHT_MEASURE_MAX_REPORTERS)
+			rep.insert(src->id);
+	}
 
 	int worthy = worthyPotentialPeer(id);
 	int shouldPing = 0;
