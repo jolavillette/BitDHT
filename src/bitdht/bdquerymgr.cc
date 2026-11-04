@@ -160,14 +160,14 @@ int bdQueryManager::iterateQueries(int maxQueries)
 }
 
 
-bool bdQueryManager::checkPotentialPeer(bdId *id, bdId *src)
+bool bdQueryManager::checkPotentialPeer(bdId *id, bdId *src, uint32_t srcmode)
 {
 	bool isWorthyPeer = false;
 	/* also push to queries */
 	std::list<bdQuery *>::iterator it;
 	for(it = mLocalQueries.begin(); it != mLocalQueries.end(); it++)
 	{
-		if ((*it)->addPotentialPeer(id, src, 0))
+		if ((*it)->addPotentialPeer(id, src, srcmode))
 		{
 			isWorthyPeer = true;
 		}

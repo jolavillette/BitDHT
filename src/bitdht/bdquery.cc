@@ -532,12 +532,16 @@ int bdQuery::addPeer(const bdId *id, uint32_t mode)
 int bdQuery::addPotentialPeer(const bdId *id, const bdId *src, uint32_t srcmode)
 {
 	// is it a Potential Proxy? Always Check This.
-	addProxy(id, src, srcmode);
+	// (srcmode only tags localnet replies for measure queries: not a proxy flag)
+	addProxy(id, src, 0);
 
 	if (mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL)
 	{
-		/* only what an application peer told us */
-		if ((src == NULL) || (mApplVouched.find(src->id) == mApplVouched.end()))
+		/* only what an application peer told us in reply to a localnet
+		 * find_node: every query sees every reply, and the same peer
+		 * answering a plain find_node (another query) lists any DHT node */
+		if ((src == NULL) || !(srcmode & BITDHT_PEER_STATUS_DHT_APPL) ||
+		    (mApplVouched.find(src->id) == mApplVouched.end()))
 			return 0;
 		mApplVouched.insert(id->id);
 	}
