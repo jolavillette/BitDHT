@@ -35,6 +35,9 @@
 
 #include "bitdht/bdfriendlist.h"
 
+#include <set>
+#include <string>
+
 class bdFilter;
 
 
@@ -232,6 +235,10 @@ void	recvPkt(char *msg, int len, struct sockaddr_in addr);
 
 	void doStats();
 
+	/* Bad peer filter: counted here, reported once a minute by iteration() */
+	void noteMasqueradingPeer(const bdId *id);
+	void reportBadPeerFilter();
+
 	/********** Variables **********/
 	private:
 
@@ -256,6 +263,13 @@ void	recvPkt(char *msg, int len, struct sockaddr_in addr);
 
 	bdFriendList mFriendList;
 	bdPeerQueue  mBadPeerQueue;
+
+	/* Bad peer filter figures since the last report */
+	uint32_t mMasqueradingPeers;              // announces of a friend's id from another address
+	std::set<std::string> mMasqueradingIds;   // friend ids they used
+	std::set<uint32_t> mMasqueradingAddrs;    // addresses they came from
+	uint32_t mStoreEntriesFiltered;           // entries removed from the peer store
+	time_t mBadPeerReportTS;
 
 	bdHistory mHistory; /* for understanding the DHT */
 

@@ -135,6 +135,10 @@ int     bdStore::filterIpList(const std::list<struct sockaddr_in> &filteredIPs)
 	// Nasty O(n^2) iteration over 500 entries!!!. 
 	// hope its not used to often.
 
+	// Returns the number of entries erased. Nothing is printed here: the
+	// caller reports the total (one line per entry flooded the log).
+
+	int erased = 0;
 	std::list<struct sockaddr_in>::const_iterator it;
 	for(it = filteredIPs.begin(); it != filteredIPs.end(); it++)
 	{
@@ -143,10 +147,12 @@ int     bdStore::filterIpList(const std::list<struct sockaddr_in> &filteredIPs)
 		{
 			if (it->sin_addr.s_addr == sit->mPeerId.addr.sin_addr.s_addr)
 			{
+#ifdef DEBUG_STORE
 				std::cerr << "bdStore::filterIpList() Found Bad entry in Store. Erasing!";
 				std::cerr << std::endl;
-
+#endif
 				sit = store.erase(sit);
+				erased++;
 			}
 			else
 			{
@@ -154,7 +160,7 @@ int     bdStore::filterIpList(const std::list<struct sockaddr_in> &filteredIPs)
 			}
 		}
 	}
-	return 1;
+	return erased;
 }
 			
 		
