@@ -58,6 +58,8 @@ bdQuery::bdQuery(const bdNodeId *id, std::list<bdId> &startList, uint32_t queryF
 	std::list<bdId>::iterator it;
 	for(it = startList.begin(); it != startList.end(); it++)
 	{
+		if (queryFlags & BITDHT_QFLAGS_MEASURE_APPL)
+			mApplVouched.insert(it->id);
 		bdPeer peer;
 		peer.mLastSendTime = 0;
 		peer.mLastRecvTime = 0;
@@ -133,9 +135,71 @@ int bdQuery::nextQuery(bdId &id, bdNodeId &targetNodeId)
 	}
 
 	bool notFinished = false;
+	const bool measure = (mQueryFlags & BITDHT_QFLAGS_MEASURE);
+	/* a measure query stops at BITDHT_MAX_QUERY_AGE even with peers left to
+	 * ask (the check below is only reached once there are none) */
+	const bool measureExpired = measure && (now - mQueryTS > BITDHT_MAX_QUERY_AGE);
 	std::multimap<bdMetric, bdPeer>::iterator it;
+
+	if (measure && !measureExpired)
+	{
+		/* Plain Kademlia step: a node returned by a find_node reply only
+		 * reaches mClosest once it answers the ping bdNode queues for it, and
+		 * that FIFO is shared with every other query and the table upkeep.
+		 * The query then ends on the first K answers long before the closer
+		 * nodes are pinged, which overestimates d_k. So ask the potential
+		 * peers closer than the K-th answered closest directly, once each,
+		 * and do not finish while one of them may still answer. */
+		const bdMetric *limit = NULL;
+		uint32_t answered = 0;
+		for(it = mClosest.begin(); it != mClosest.end(); it++)
+		{
+			if (it->second.mLastRecvTime != 0)
+			{
+				if (++answered == mFns->bdNumQueryNodes())
+				{
+					limit = &(it->first);
+					break;
+				}
+			}
+		}
+
+		std::multimap<bdMetric, bdPeer>::iterator pit;
+		for(pit = mPotentialPeers.begin(); pit != mPotentialPeers.end(); pit++)
+		{
+			if (limit && !(pit->first < *limit))
+				break;
+
+			/* already in mClosest: handled by the loop below */
+			bool inClosest = false;
+			std::multimap<bdMetric, bdPeer>::iterator cit, ceit;
+			ceit = mClosest.upper_bound(pit->first);
+			for(cit = mClosest.lower_bound(pit->first); cit != ceit; cit++)
+			{
+				if (mFns->bdSimilarId(&(pit->second.mPeerId), &(cit->second.mPeerId)))
+				{
+					inClosest = true;
+					break;
+				}
+			}
+			if (inClosest)
+				continue;
+
+			std::map<bdMetric, time_t>::iterator ait = mMeasureAsked.find(pit->first);
+			if (ait == mMeasureAsked.end())
+			{
+				mMeasureAsked[pit->first] = now;
+				id = pit->second.mPeerId;
+				targetNodeId = mId;
+				return 1;
+			}
+			if (now - ait->second < EXPECTED_REPLY)
+				notFinished = true;
+		}
+	}
+
 	int i = 0;
-	for(it = mClosest.begin(); it != mClosest.end(); it++, i++)
+	for(it = mClosest.begin(); (it != mClosest.end()) && !measureExpired; it++, i++)
 	{
 		bool queryPeer = false;
 
@@ -169,7 +233,18 @@ int bdQuery::nextQuery(bdId &id, bdNodeId &targetNodeId)
 		 * Need to wait at least EXPECTED_REPLY, to make sure their answers are pinged
 		 */	
 
-		if (((it->second.mLastRecvTime == 0) || (now - it->second.mLastRecvTime < EXPECTED_REPLY)) && 
+		if (measure)
+		{
+			/* not finished while one of the closest is unasked, or asked
+			 * less than EXPECTED_REPLY ago without answering yet: a peer
+			 * that never answers must not hold the query forever */
+			bool unasked = (it->second.mLastSendTime == 0);
+			bool waiting = (it->second.mLastRecvTime < it->second.mLastSendTime) &&
+			               (now - it->second.mLastSendTime < EXPECTED_REPLY);
+			if ((unasked || waiting) && (i < mFns->bdNumQueryNodes()))
+				notFinished = true;
+		}
+		else if (((it->second.mLastRecvTime == 0) || (now - it->second.mLastRecvTime < EXPECTED_REPLY)) && 
 				(i < mFns->bdNumQueryNodes()))
 		{
 #ifdef DEBUG_QUERY 
@@ -257,7 +332,7 @@ int bdQuery::nextQuery(bdId &id, bdNodeId &targetNodeId)
 		{
 			mState = BITDHT_QUERY_SUCCESS;
 		}
-		else if ((mPotentialPeers.begin()->second).mPeerId.id == mId)
+		else if ((!mPotentialPeers.empty()) && (mPotentialPeers.begin()->second).mPeerId.id == mId)
 		{
 			mState = BITDHT_QUERY_PEER_UNREACHABLE;
 		}
@@ -353,6 +428,12 @@ int bdQuery::addClosestPeer(const bdId *id, uint32_t mode)
 #ifdef DEBUG_QUERY 
         fprintf(stderr, "Peer not in Query\n");
 #endif
+	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL) &&
+	    (mApplVouched.find(id->id) == mApplVouched.end()))
+	{
+		/* a node of another application, met by some other query */
+		return 0;
+	}
 	/* firstly drop unresponded (bit ugly - but hard structure to extract from) */
 	int j;
 	for(j = 0; j < toDrop; j++)
@@ -440,6 +521,8 @@ int bdQuery::addClosestPeer(const bdId *id, uint32_t mode)
 
 int bdQuery::addPeer(const bdId *id, uint32_t mode)
 {
+	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL) && (mode & BITDHT_PEER_STATUS_DHT_APPL))
+		mApplVouched.insert(id->id);
 	addClosestPeer(id, mode);
 	updatePotentialPeer(id, mode, PEER_MESSAGE);
 	updateProxy(id, mode);
@@ -449,7 +532,27 @@ int bdQuery::addPeer(const bdId *id, uint32_t mode)
 int bdQuery::addPotentialPeer(const bdId *id, const bdId *src, uint32_t srcmode)
 {
 	// is it a Potential Proxy? Always Check This.
-	addProxy(id, src, srcmode);
+	// (srcmode only tags localnet replies for measure queries: not a proxy flag)
+	addProxy(id, src, 0);
+
+	if (mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL)
+	{
+		/* only what an application peer told us in reply to a localnet
+		 * find_node: every query sees every reply, and the same peer
+		 * answering a plain find_node (another query) lists any DHT node */
+		if ((src == NULL) || !(srcmode & BITDHT_PEER_STATUS_DHT_APPL) ||
+		    (mApplVouched.find(src->id) == mApplVouched.end()))
+			return 0;
+		mApplVouched.insert(id->id);
+	}
+	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE) && (src != NULL))
+	{
+		bdMetric dist;
+		mFns->bdDistance(&mId, &(id->id), &dist);
+		std::set<bdNodeId> &rep = mReporters[dist];
+		if (rep.size() < BITDHT_MEASURE_MAX_REPORTERS)
+			rep.insert(src->id);
+	}
 
 	int worthy = worthyPotentialPeer(id);
 	int shouldPing = 0;

@@ -37,7 +37,7 @@ class bdQueryManager
 
 	int iterateQueries(int maxqueries);
 
-	bool checkPotentialPeer(bdId *id, bdId *src);
+	bool checkPotentialPeer(bdId *id, bdId *src, uint32_t srcmode = 0);
 	void addPeer(const bdId *id, uint32_t peerflags);
 
 	void addQuery(const bdNodeId *id, uint32_t qflags);

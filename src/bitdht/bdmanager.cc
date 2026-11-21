@@ -238,7 +238,9 @@ void bdNodeManager::startQueries()
 #endif
 			it->second.mStatus = BITDHT_QUERY_QUERYING;
 
-			uint32_t qflags = it->second.mQFlags | BITDHT_QFLAGS_DISGUISE;
+			uint32_t qflags = it->second.mQFlags;
+			if (!(qflags & BITDHT_QFLAGS_MEASURE))
+				qflags |= BITDHT_QFLAGS_DISGUISE;
 			mQueryMgr->addQuery(&(it->first), qflags); 
 
 			// add all queries at the same time!
@@ -773,6 +775,12 @@ int bdNodeManager::checkStatus()
 		if (doRemove) 
 		{
 			if (it->second.mQFlags & BITDHT_QFLAGS_DO_IDLE)
+			{
+				doRemove = false;
+			}
+			/* a measure query is read through getDhtQueryStatus() by its
+			 * owner, who removes it with removeFindNode() */
+			if (it->second.mQFlags & BITDHT_QFLAGS_MEASURE)
 			{
 				doRemove = false;
 			}

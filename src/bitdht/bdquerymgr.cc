@@ -98,7 +98,29 @@ int bdQueryManager::iterateQueries(int maxQueries)
 	
 	bdId id;
 	bdNodeId targetNodeId;
-	
+
+	/* measure queries first, up to half the budget: in the round-robin
+	 * below they would get one send per pass over every friend query */
+	{
+		int measureBudget = maxQueries / 2;
+		if ((maxQueries > 0) && (measureBudget < 1))
+			measureBudget = 1;
+		std::list<bdQuery *>::iterator mit;
+		for(mit = mLocalQueries.begin(); mit != mLocalQueries.end(); mit++)
+		{
+			if (!((*mit)->mQueryFlags & BITDHT_QFLAGS_MEASURE))
+				continue;
+			for(int s = 0; (s < 2) && (sentQueries < measureBudget); s++)
+			{
+				if (!(*mit)->nextQuery(id, targetNodeId))
+					break;
+				mPub->send_query(&id, &targetNodeId,
+				        (*mit)->mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL);
+				sentQueries++;
+			}
+		}
+	}
+
 	while((i < numQueries) && (sentQueries < maxQueries))
 	{
 		bdQuery *query = mLocalQueries.front();
@@ -116,7 +138,9 @@ int bdQueryManager::iterateQueries(int maxQueries)
 			std::cerr << ")";
 			std::cerr << std::endl;
 #endif
-			mPub->send_query(&id, &targetNodeId, false);
+			/* localnet: application peers answer with application peers */
+			mPub->send_query(&id, &targetNodeId,
+			        query->mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL);
 			sentQueries++;
 		}
 		i++;
@@ -136,14 +160,14 @@ int bdQueryManager::iterateQueries(int maxQueries)
 }
 
 
-bool bdQueryManager::checkPotentialPeer(bdId *id, bdId *src)
+bool bdQueryManager::checkPotentialPeer(bdId *id, bdId *src, uint32_t srcmode)
 {
 	bool isWorthyPeer = false;
 	/* also push to queries */
 	std::list<bdQuery *>::iterator it;
 	for(it = mLocalQueries.begin(); it != mLocalQueries.end(); it++)
 	{
-		if ((*it)->addPotentialPeer(id, src, 0))
+		if ((*it)->addPotentialPeer(id, src, srcmode))
 		{
 			isWorthyPeer = true;
 		}
@@ -184,7 +208,14 @@ void bdQueryManager::addQuery(const bdNodeId *id, uint32_t qflags)
 	std::multimap<bdMetric, bdId> nearest;
 	std::multimap<bdMetric, bdId>::iterator it;
 
-	mNodeSpace->find_nearest_nodes(id, BITDHT_QUERY_START_PEERS, nearest);
+	if (qflags & BITDHT_QFLAGS_MEASURE_APPL)
+	{
+		std::list<bdId> excluding;
+		mNodeSpace->find_nearest_nodes_with_flags(id, BITDHT_QUERY_START_PEERS,
+		        excluding, nearest, BITDHT_PEER_STATUS_DHT_APPL);
+	}
+	else
+		mNodeSpace->find_nearest_nodes(id, BITDHT_QUERY_START_PEERS, nearest);
 
 #ifdef DEBUG_NODE_ACTIONS 
 	fprintf(stderr, "bdQueryManager::addQuery(");
@@ -250,6 +281,10 @@ int bdQueryManager::QuerySummary(const bdNodeId *id, bdQuerySummary &query)
 			query.mPotentialPeers = (*it)->mPotentialPeers;
 			query.mProxiesUnknown = (*it)->mProxiesUnknown;
 			query.mProxiesFlagged = (*it)->mProxiesFlagged;
+			query.mReporters.clear();
+			std::map<bdMetric, std::set<bdNodeId> >::const_iterator rit;
+			for(rit = (*it)->mReporters.begin(); rit != (*it)->mReporters.end(); ++rit)
+				query.mReporters[rit->first] = rit->second.size();
  			query.mQueryIdlePeerRetryPeriod = (*it)->mQueryIdlePeerRetryPeriod;
 
 			return 1;

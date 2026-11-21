@@ -458,6 +458,20 @@ void bdNode::send_query(bdId *id, bdNodeId *targetNodeId, bool localnet)
 	bdToken transId;
 	genNewTransId(&transId);
 
+	if (localnet)
+	{
+		std::string t((const char *) transId.data, transId.len);
+		if (mLocalnetTransIds.insert(t).second)
+		{
+			mLocalnetTransIdOrder.push_back(t);
+			while (mLocalnetTransIdOrder.size() > BITDHT_LOCALNET_TRANSIDS)
+			{
+				mLocalnetTransIds.erase(mLocalnetTransIdOrder.front());
+				mLocalnetTransIdOrder.pop_front();
+			}
+		}
+	}
+
 	msgout_find_node(id, &transId, targetNodeId, localnet);
 
 #ifdef DEBUG_NODE_MSGS 
@@ -486,7 +500,7 @@ void bdNode::send_connect_msg(bdId *id, int msgtype, bdId *srcAddr, bdId *destAd
 }
 
 
-void bdNode::checkPotentialPeer(bdId *id, bdId *src)
+void bdNode::checkPotentialPeer(bdId *id, bdId *src, uint32_t srcmode)
 {
 	/* Check BadPeer Filters for Potential Peers too */
 
@@ -533,7 +547,7 @@ void bdNode::checkPotentialPeer(bdId *id, bdId *src)
 		}
 	}
 
-	bool isWorthyPeer = mQueryMgr->checkPotentialPeer(id, src);
+	bool isWorthyPeer = mQueryMgr->checkPotentialPeer(id, src, srcmode);
 
 	if (isWorthyPeer)
 	{
@@ -1936,10 +1950,16 @@ void bdNode::msgin_reply_find_node(bdId *id, bdToken *transId, std::list<bdId> &
 
 	mAccount.incCounter(BDACCOUNT_MSG_REPLYFINDNODE, false);
 
+	/* a reply to one of our localnet find_nodes lists application nodes */
+	uint32_t srcmode = 0;
+	if (transId && mLocalnetTransIds.count(
+	        std::string((const char *) transId->data, transId->len)))
+		srcmode = BITDHT_PEER_STATUS_DHT_APPL;
+
 	/* add neighbours to the potential list */
 	for(it = nodes.begin(); it != nodes.end(); it++)
 	{
-		checkPotentialPeer(&(*it), id);
+		checkPotentialPeer(&(*it), id, srcmode);
 	}
 
 	/* received reply - so peer must be good */

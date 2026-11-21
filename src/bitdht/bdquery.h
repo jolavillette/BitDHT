@@ -22,6 +22,8 @@
 #ifndef BITDHT_QUERY_H
 #define BITDHT_QUERY_H
 
+#include <map>
+#include <set>
 #include "bitdht/bdiface.h"
 #include "bitdht/bdpeer.h"
 #include "bitdht/bdobj.h"
@@ -81,6 +83,14 @@ int 	trimProxies();
 	// closest peers.
 	std::multimap<bdMetric, bdPeer>  mClosest;
 	std::multimap<bdMetric, bdPeer>  mPotentialPeers;
+	/* BITDHT_QFLAGS_MEASURE: potential peers we sent a find_node to
+	 * directly, by distance to the target, with the send time */
+	std::map<bdMetric, time_t>  mMeasureAsked;
+	/* BITDHT_QFLAGS_MEASURE: distinct reporters of each peer, by distance */
+	std::map<bdMetric, std::set<bdNodeId> >  mReporters;
+	/* BITDHT_QFLAGS_MEASURE_APPL: application peers, and peers an
+	 * application peer reported */
+	std::set<bdNodeId>  mApplVouched;
 	time_t mPotPeerCleanTS; // periodic cleanup of PotentialPeers.
 
 	uint32_t mRequiredPeerFlags; 

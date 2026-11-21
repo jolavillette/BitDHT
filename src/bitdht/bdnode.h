@@ -22,6 +22,11 @@
 #ifndef BITDHT_NODE_H
 #define BITDHT_NODE_H
 
+#include <set>
+#include <string>
+
+#define BITDHT_LOCALNET_TRANSIDS 1024
+
 #include "bitdht/bdpeer.h"
 #include "bitdht/bdquery.h"
 #include "bitdht/bdstore.h"
@@ -136,7 +141,9 @@ class bdNode: public bdNodePublisher
 	virtual void addPeer(const bdId *id, uint32_t peerflags);
 
 	void printState();
-	void checkPotentialPeer(bdId *id, bdId *src);
+	/* srcmode: BITDHT_PEER_STATUS_DHT_APPL when src reported id in reply to
+	 * one of our localnet find_nodes (so id is an application node) */
+	void checkPotentialPeer(bdId *id, bdId *src, uint32_t srcmode = 0);
 	void addPotentialPeer(bdId *id, bdId *src);
 
 	void iterationOff();
@@ -273,6 +280,11 @@ void	recvPkt(char *msg, int len, struct sockaddr_in addr);
 	std::list<bdRemoteQuery> mRemoteQueries;
 
 	std::list<bdId> mPotentialPeers;
+
+	/* transIds of our recent localnet find_nodes: their replies list
+	 * application nodes only (other replies list any DHT node) */
+	std::set<std::string> mLocalnetTransIds; /* capped at BITDHT_LOCALNET_TRANSIDS */
+	std::list<std::string> mLocalnetTransIdOrder;
 
 	std::list<bdNodeNetMsg *> mOutgoingMsgs;
 	std::list<bdNodeNetMsg *> mIncomingMsgs;
