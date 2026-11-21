@@ -89,6 +89,10 @@ void bdNode::init()
 	mNodeDhtMode = 0;
 	setNodeDhtMode(BITDHT_MODE_TRAFFIC_DEFAULT);
 
+	mMasqueradingPeers = 0;
+	mStoreEntriesFiltered = 0;
+	mBadPeerReportTS = time(NULL);
+
 }
 bool bdNode::getFilteredPeers(std::list<bdFilteredPeer>& peers)
 {
@@ -316,6 +320,43 @@ void bdNode::iterationOff()
 	}
 }
 
+/* A peer announcing the id of a friend from another address than the known
+ * one, and each entry its address removes from the peer store, used to print
+ * one line each: 143 000 lines in an 11 hour run, from 28 ids. They are
+ * counted instead, and iteration() prints one line a minute when there is
+ * something to say. DEBUG_NODE_MSGS brings the line per peer back. */
+
+#define BDNODE_BAD_PEER_REPORT_PERIOD 	60 /* secs */
+
+void bdNode::noteMasqueradingPeer(const bdId *id)
+{
+	mMasqueradingPeers++;
+	mMasqueradingIds.insert(std::string((const char *) id->id.data, BITDHT_KEY_LEN));
+	mMasqueradingAddrs.insert(id->addr.sin_addr.s_addr);
+}
+
+void bdNode::reportBadPeerFilter()
+{
+	time_t now = time(NULL);
+	if (now - mBadPeerReportTS < BDNODE_BAD_PEER_REPORT_PERIOD)
+		return;
+
+	if (mMasqueradingPeers > 0 || mStoreEntriesFiltered > 0)
+	{
+		std::cerr << "bdNode: over the last " << (now - mBadPeerReportTS) << " s: ";
+		std::cerr << mMasqueradingPeers << " peers announced the id of a friend from another address than the known one (";
+		std::cerr << mMasqueradingIds.size() << " friend ids, " << mMasqueradingAddrs.size() << " addresses, flagged as bad), ";
+		std::cerr << mStoreEntriesFiltered << " entries of filtered addresses removed from the peer store.";
+		std::cerr << std::endl;
+	}
+
+	mMasqueradingPeers = 0;
+	mMasqueradingIds.clear();
+	mMasqueradingAddrs.clear();
+	mStoreEntriesFiltered = 0;
+	mBadPeerReportTS = now;
+}
+
 void bdNode::iteration()
 {
 #ifdef DEBUG_NODE_MULTIPEER 
@@ -336,6 +377,7 @@ void bdNode::iteration()
 		delete msg;
 	}
 
+	reportBadPeerFilter();
 
 	/* assume that this is called once per second... limit the messages 
          * in theory, a query can generate up to 10 peers (which will all require a ping!).
@@ -538,10 +580,13 @@ void bdNode::checkPotentialPeer(bdId *id, bdId *src, uint32_t srcmode)
 			if (knownAddr.sin_addr.s_addr != id->addr.sin_addr.s_addr)
 			{
 #ifndef DISABLE_BAD_PEER_FILTER	
+#ifdef DEBUG_NODE_MSGS
 				std::cerr << "bdNode::checkPotentialPeer(";
 				mFns->bdPrintId(std::cerr, id);
 				std::cerr << ") MASQUERADING AS KNOWN PEER - FLAGGING AS BAD";
 				std::cerr << std::endl;
+#endif
+				noteMasqueradingPeer(id);
 
 				// Stores in queue for later callback and desemination around the network.
 	        		mBadPeerQueue.queuePeer(id, 0);
@@ -550,7 +595,7 @@ void bdNode::checkPotentialPeer(bdId *id, bdId *src, uint32_t srcmode)
 
 				std::list<struct sockaddr_in> filteredIPs;
                 mFilterPeers.filteredIPs(filteredIPs);
-				mStore.filterIpList(filteredIPs);
+				mStoreEntriesFiltered += mStore.filterIpList(filteredIPs);
 
 				return;
 #endif
@@ -601,7 +646,7 @@ void bdNode::addPeer(const bdId *id, uint32_t peerflags)
 
 		std::list<struct sockaddr_in> filteredIPs;
         mFilterPeers.filteredIPs(filteredIPs);
-		mStore.filterIpList(filteredIPs);
+		mStoreEntriesFiltered += mStore.filterIpList(filteredIPs);
 
 	        mBadPeerQueue.queuePeer(id, peerflags);
 
@@ -622,12 +667,14 @@ void bdNode::addPeer(const bdId *id, uint32_t peerflags)
 			if (knownAddr.sin_addr.s_addr != id->addr.sin_addr.s_addr)
 			{
 #ifndef DISABLE_BAD_PEER_FILTER	
+#ifdef DEBUG_NODE_MSGS
 				std::cerr << "bdNode::addPeer(";
 				mFns->bdPrintId(std::cerr, id);
 				std::cerr << ", " << std::hex << peerflags << std::dec;
 				std::cerr << ") MASQUERADING AS KNOWN PEER - FLAGGING AS BAD";
 				std::cerr << std::endl;
-				
+#endif
+				noteMasqueradingPeer(id);
 
 				// Stores in queue for later callback and desemination around the network.
 	        		mBadPeerQueue.queuePeer(id, peerflags);
@@ -636,7 +683,7 @@ void bdNode::addPeer(const bdId *id, uint32_t peerflags)
 
 				std::list<struct sockaddr_in> filteredIPs;
                 mFilterPeers.filteredIPs(filteredIPs);
-				mStore.filterIpList(filteredIPs);
+				mStoreEntriesFiltered += mStore.filterIpList(filteredIPs);
 
 				// DO WE EXPLICITLY NEED TO DO THIS, OR WILL THEY JUST BE DROPPED?
 				//mNodeSpace.remove_badpeer(id);
