@@ -34,6 +34,10 @@
 #include <string.h>
 
 #include "util/bdnet.h"
+#include "util/bdfile.h"
+
+#include <stdio.h>
+#include <list>
 
 /*
  * #define DEBUG_UDP_BITDHT 1
@@ -319,6 +323,36 @@ void UdpBitDht::getDataTransferred(uint32_t &read, uint32_t &write)
 #define MAX_MSG_PER_TICK	100
 #define TICK_PAUSE_USEC		20000  /* 20ms secs .. max messages = 50 x 100 = 5000 */
 
+/* Writes a file through a temporary one. Called WITHOUT dhtMtx: every call
+ * into the DHT takes that mutex (the main loop of the caller among them), and
+ * on a busy disk open + write + rename last seconds. */
+static void writeDhtFile(const std::string& filename, const std::string& content)
+{
+	std::string filetmp = filename + ".tmp" ;
+
+	FILE *fd = fopen(filetmp.c_str(), "w");
+
+	if (!fd)
+	{
+		std::cerr << "(EE) UdpBitDht: cannot open file " << filetmp << " for writing" << std::endl;
+		return;
+	}
+
+	bool ok = content.empty() || (1 == fwrite(content.data(), content.size(), 1, fd));
+
+	if (fclose(fd) != 0)
+		ok = false;
+
+	if (!ok)
+	{
+		std::cerr << "(EE) UdpBitDht: cannot write file " << filetmp << std::endl;
+		return;
+	}
+
+	if(!bdFile::renameFile(filetmp,filename))
+		std::cerr << "Could not rename file !!" << std::endl;
+}
+
 void UdpBitDht::run()
 {
 	while(1)
@@ -328,10 +362,19 @@ void UdpBitDht::run()
 			usleep(TICK_PAUSE_USEC);
 		}
 
+		std::list<std::pair<std::string, std::string> > files;
+
 		{
 			bdStackMutex stack(dhtMtx); /********** MUTEX LOCKED *************/
 			mBitDhtManager->iteration();
+			mBitDhtManager->takeFilesToWrite(files);
 		}
+
+		/* the peer store and the banned IP list, written with the mutex released */
+		std::list<std::pair<std::string, std::string> >::iterator fit;
+		for(fit = files.begin(); fit != files.end(); ++fit)
+			writeDhtFile(fit->first, fit->second);
+
 		sleep(1);
 	}
 }

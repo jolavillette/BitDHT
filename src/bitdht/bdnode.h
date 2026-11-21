@@ -151,6 +151,10 @@ class bdNode: public bdNodePublisher
 	void processRemoteQuery();
 	void updateStore();
 
+	/* The files (name, content) that the caller has to write once it has
+	 * released the DHT mutex: peer store, banned IPs. */
+	void takeFilesToWrite(std::list<std::pair<std::string, std::string> >& files);
+
     bool addressBanned(const sockaddr_in &raddr) ;
     bool getFilteredPeers(std::list<bdFilteredPeer> &peers);
     //void loadFilteredPeers(const std::list<bdFilteredPeer> &peers);

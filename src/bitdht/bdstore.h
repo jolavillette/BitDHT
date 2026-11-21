@@ -39,12 +39,19 @@ public:
 
     int 	getPeer(bdPeer *peer);
     void	addStore(bdPeer *peer);
+    // Prepare the content of the file; it is written by the DHT thread, which
+    // takes it with takeStoreFile() once the DHT mutex is released.
     void	writeStore(std::string file);
     void	writeStore();
+
+    // Returns true and fills the file name and its new content if the file is to be written.
+    bool	takeStoreFile(std::string& filename, std::string& content);
 
 protected:
     std::string mStoreFile;
     std::string mStoreFileBak;
+    std::string mPendingFile;		// file to write, empty if none
+    std::string mPendingContent;
     std::list<bdPeer> store;
     int mIndex;
     bdDhtFunctions *mFns;
