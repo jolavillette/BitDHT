@@ -428,12 +428,6 @@ int bdQuery::addClosestPeer(const bdId *id, uint32_t mode)
 #ifdef DEBUG_QUERY 
         fprintf(stderr, "Peer not in Query\n");
 #endif
-	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL) &&
-	    (mApplVouched.find(id->id) == mApplVouched.end()))
-	{
-		/* a node of another application, met by some other query */
-		return 0;
-	}
 	/* firstly drop unresponded (bit ugly - but hard structure to extract from) */
 	int j;
 	for(j = 0; j < toDrop; j++)
@@ -521,8 +515,19 @@ int bdQuery::addClosestPeer(const bdId *id, uint32_t mode)
 
 int bdQuery::addPeer(const bdId *id, uint32_t mode)
 {
-	if ((mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL) && (mode & BITDHT_PEER_STATUS_DHT_APPL))
-		mApplVouched.insert(id->id);
+	if (mQueryFlags & BITDHT_QFLAGS_MEASURE_APPL)
+	{
+		if (mode & BITDHT_PEER_STATUS_DHT_APPL)
+			mApplVouched.insert(id->id);
+
+		/* a node of another application, met by some other query: it is
+		 * part of this walk neither as a closest nor as a potential peer */
+		if (mApplVouched.find(id->id) == mApplVouched.end())
+		{
+			updateProxy(id, mode);
+			return 1;
+		}
+	}
 	addClosestPeer(id, mode);
 	updatePotentialPeer(id, mode, PEER_MESSAGE);
 	updateProxy(id, mode);
@@ -755,6 +760,11 @@ int bdQuery::trimPotentialPeers_toClosest()
 {
 	if (mPotentialPeers.size() <= (uint32_t) (mFns->bdNumQueryNodes()))
 		return 1;
+
+	/* nothing bounds the list while mClosest is empty (a find_node reply
+	 * lists its nodes before its sender is added): keep the nearest ones */
+	if (mClosest.empty())
+		return trimPotentialPeers_FixedLength();
 
 	std::multimap<bdMetric, bdPeer>::reverse_iterator it;
 	it = mClosest.rbegin();
