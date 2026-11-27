@@ -174,8 +174,7 @@ int UdpStack::okay()
 
 int UdpStack::close()
 {
-	/* TODO */
-	return 1;
+	return udpLayer->close();
 }
 
 
