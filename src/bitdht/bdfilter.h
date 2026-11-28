@@ -61,7 +61,15 @@ int 	addPeerToFilter(const struct sockaddr_in &addr, uint32_t flags);
 bool 	cleanupFilter();
 
 void loadBannedIpFile() ;
+
+// Marks the banned IP file as to be written. The file is not written here: the
+// whole DHT runs under one mutex, which other threads wait for, and a write to
+// a busy disk lasts seconds. The DHT thread takes the content with
+// takeBannedIpFile() and writes it once the mutex is released.
 void writeBannedIpFile() ;
+
+// Returns true and fills the file name and its new content if the file is to be written.
+bool takeBannedIpFile(std::string& filename, std::string& content) ;
 
 private:
 
@@ -74,6 +82,7 @@ bool	isOwnIdWithoutBitDhtFlags(const bdId *id, uint32_t peerFlags);
 	std::map<uint32_t,bdFilteredPeer> mFiltered;
 	bdDhtFunctions *mFns;
 	std::string mFilename ;
+	bool mBannedIpFileChanged ;
 
 	// have access to the manager for isBanned callback
 	bdNodeManager* mNodeManager;

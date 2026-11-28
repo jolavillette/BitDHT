@@ -41,6 +41,7 @@ bdFilter::bdFilter(const std::string &fname, const bdNodeId *ownid,  uint32_t fi
     mOwnId = *ownid;
     mFns = fns;
     mFilename = fname ;
+    mBannedIpFileChanged = false ;
 
     loadBannedIpFile() ;
 
@@ -50,32 +51,31 @@ bdFilter::bdFilter(const std::string &fname, const bdNodeId *ownid,  uint32_t fi
 
 void bdFilter::writeBannedIpFile()
 {
-    std::string filetmp = mFilename + ".tmp" ;
+    // Not written here: see bdfilter.h. Several changes before the next
+    // takeBannedIpFile() make one write.
+    mBannedIpFileChanged = true ;
+}
 
-    FILE *fd = fopen(filetmp.c_str(), "w");
+bool bdFilter::takeBannedIpFile(std::string& filename, std::string& content)
+{
+    if(!mBannedIpFileChanged)
+        return false ;
 
-    if (!fd)
-    {
-        std::cerr << "(EE) bdFilter::writeBannedIpFile() FAILED to Open File " << mFilename << std::endl;
-        return;
-    }
+    mBannedIpFileChanged = false ;
+
+    filename = mFilename ;
+    content.clear() ;
 
     for( std::map<uint32_t,bdFilteredPeer>::iterator it=mFiltered.begin();it!=mFiltered.end();++it)
     {
-        fprintf(fd, "%s %u %lu %lu\n", bdnet_inet_ntoa(it->second.mAddr.sin_addr).c_str(), it->second.mFilterFlags, it->second.mFilterTS, it->second.mLastSeen) ;
+        char line[128] ;
+        snprintf(line, sizeof(line), "%s %u %lu %lu\n", bdnet_inet_ntoa(it->second.mAddr.sin_addr).c_str(), it->second.mFilterFlags, (unsigned long)it->second.mFilterTS, (unsigned long)it->second.mLastSeen) ;
+        content += line ;
 #ifdef DEBUG_FILTER
         fprintf(stderr, "Storing Peer Address: %s \n", bdnet_inet_ntoa(it->second.mAddr.sin_addr).c_str()) ;
 #endif
-
     }
-    fclose(fd);
-
-    if(!bdFile::renameFile(filetmp,mFilename))
-        std::cerr << "Could not rename file !!" << std::endl;
-#ifdef DEBUG_FILTER
-    else
-        std::cerr << "Successfully renamed file " << filetmp << " to " << mFilename << std::endl;
-#endif
+    return true ;
 }
 
 void bdFilter::loadBannedIpFile()

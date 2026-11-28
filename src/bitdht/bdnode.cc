@@ -257,6 +257,17 @@ void bdNode::updateStore()
     mStore.writeStore();
 }
 
+void bdNode::takeFilesToWrite(std::list<std::pair<std::string, std::string> >& files)
+{
+	std::pair<std::string, std::string> file;
+
+	if(mStore.takeStoreFile(file.first, file.second))
+		files.push_back(file);
+
+	if(mFilterPeers.takeBannedIpFile(file.first, file.second))
+		files.push_back(file);
+}
+
 bool bdNode::addressBanned(const sockaddr_in& raddr)
 {
     return !mFilterPeers.addrOkay(const_cast<sockaddr_in*>(&raddr)) ;

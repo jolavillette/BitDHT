@@ -223,35 +223,37 @@ void	bdStore::writeStore(std::string file)
 		return;
 	}
 
-	std::string filetmp = file + ".tmp" ;
+	/* Not written here: the whole DHT runs under one mutex, which other
+	 * threads wait for, and a write to a busy disk lasts seconds. The DHT
+	 * thread takes the content with takeStoreFile() and writes it once the
+	 * mutex is released. */
 
-	FILE *fd = fopen(filetmp.c_str(), "w");
+	mPendingFile = file;
+	mPendingContent.clear();
 
-	if (!fd)
-	{
-#ifdef DEBUG_STORE
-#endif
-		fprintf(stderr, "bdStore::writeStore() FAILED to Open File\n");
-		return;
-	}
-	
 	std::list<bdPeer>::iterator it;
 	for(it = store.begin(); it != store.end(); it++)
 	{
-		fprintf(fd, "%s %d\n", bdnet_inet_ntoa(it->mPeerId.addr.sin_addr).c_str(), ntohs(it->mPeerId.addr.sin_port));
+		char line[64];
+		snprintf(line, sizeof(line), "%s %d\n", bdnet_inet_ntoa(it->mPeerId.addr.sin_addr).c_str(), ntohs(it->mPeerId.addr.sin_port));
+		mPendingContent += line;
 #ifdef DEBUG_STORE
 		fprintf(stderr, "Storing Peer Address: %s %d\n", inet_ntoa(it->mPeerId.addr.sin_addr), ntohs(it->mPeerId.addr.sin_port));
 #endif
-
 	}
-	fclose(fd);
+}
 
-	if(!bdFile::renameFile(filetmp,file))
-		std::cerr << "Could not rename file !!" << std::endl;
-#ifdef DEBUG_STORE
-	else
-		std::cerr << "Successfully renamed file " << filetmp << " to " << file << std::endl;
-#endif
+bool	bdStore::takeStoreFile(std::string& filename, std::string& content)
+{
+	if (mPendingFile.empty())
+		return false;
+
+	filename = mPendingFile;
+	content = mPendingContent;
+
+	mPendingFile.clear();
+	mPendingContent.clear();
+	return true;
 }
 
 void	bdStore::writeStore()
