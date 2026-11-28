@@ -58,7 +58,7 @@
 /*************************************/
 
 UdpBitDht::UdpBitDht(UdpPublisher *pub, bdNodeId *id, std::string appVersion, std::string bootstrapfile, std::string bootstrapfilebak, const std::string& filteredipfile, bdDhtFunctions *fns)
-	:UdpSubReceiver(pub), dhtMtx(true)//, mFns(fns)
+	:UdpSubReceiver(pub), dhtMtx(true), mStopThread(false), mThreadStarted(false)
 {
 	std::string usedVersion;
 
@@ -239,6 +239,33 @@ int UdpBitDht:: stopDht()
 	return mBitDhtManager->stopDht();
 }
 
+void UdpBitDht::start()
+{
+	{
+		bdStackMutex stack(dhtMtx); /********** MUTEX LOCKED *************/
+		if (mThreadStarted)
+			return;
+		mStopThread = false;
+		mThreadStarted = true;
+	}
+	bdThread::start();
+}
+
+void UdpBitDht::fullstop()
+{
+	{
+		bdStackMutex stack(dhtMtx); /********** MUTEX LOCKED *************/
+		if (!mThreadStarted)
+			return;
+		mStopThread = true;
+	}
+
+	join();
+
+	bdStackMutex stack(dhtMtx); /********** MUTEX LOCKED *************/
+	mThreadStarted = false;
+}
+
 int UdpBitDht::stateDht() 
 {
 	bdStackMutex stack(dhtMtx); /********** MUTEX LOCKED *************/
@@ -357,6 +384,12 @@ void UdpBitDht::run()
 {
 	while(1)
 	{
+		{
+			bdStackMutex stack(dhtMtx); /********** MUTEX LOCKED *************/
+			if (mStopThread)
+				return;
+		}
+
 		while(tick())
 		{
 			usleep(TICK_PAUSE_USEC);

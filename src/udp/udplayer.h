@@ -67,7 +67,11 @@ class UdpLayer: public bdThread
 	UdpLayer(UdpReceiver *recv, struct sockaddr_in &local);
 virtual ~UdpLayer() { return; }
 
-int 	reset(struct sockaddr_in &local); /* calls join, close, openSocket */
+int 	reset(struct sockaddr_in &local); /* calls close, openSocket */
+
+	/** Stops the receiving thread, waits for it and closes the socket: the
+	 * port is free again. openSocket() or reset() start the layer again. */
+int 	close();
 void	getDataTransferred(uint32_t &read, uint32_t &write);
 
 int     status(std::ostream &out);
@@ -116,6 +120,7 @@ void    clearDataTransferred();
 	int sockfd;
 	int ttl;
 	bool stopThread;
+	bool threadStarted; /* a receiving thread is there to be joined */
 
 	bdMutex sockMtx;
 };

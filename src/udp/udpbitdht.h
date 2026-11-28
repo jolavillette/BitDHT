@@ -108,6 +108,11 @@ virtual void run();
 
 	/**** do whats to be done ***/
 int tick();
+
+	/** Stops the thread started with start() and waits for it. */
+void fullstop();
+virtual void start();
+
 private:
 
 void clearDataTransferred();
@@ -119,6 +124,9 @@ void clearDataTransferred();
 
 	uint32_t mReadBytes;
 	uint32_t mWriteBytes;
+
+	bool mStopThread;
+	bool mThreadStarted; /* a thread is there to be joined */
 
 
 };

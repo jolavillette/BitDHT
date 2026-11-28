@@ -162,7 +162,8 @@ std::string printPktOffset(unsigned int offset, void *d, unsigned int size)
 
 
 UdpLayer::UdpLayer(UdpReceiver *udpr, struct sockaddr_in &local)
-	:recv(udpr), laddr(local), errorState(0), ttl(UDP_DEF_TTL)
+	:recv(udpr), laddr(local), errorState(0), sockfd(-1), ttl(UDP_DEF_TTL),
+	 stopThread(false), threadStarted(false)
 {
 	openSocket();
 	return;
@@ -177,41 +178,37 @@ int     UdpLayer::status(std::ostream &out)
 	return 1;
 }
 
+int UdpLayer::close()
+{
+	/* stop the thread, if one was started: openSocket() starts none when the
+	 * port cannot be bound */
+	bool toJoin = false;
+	{
+		bdStackMutex stack(sockMtx);   /********** LOCK MUTEX *********/
+		stopThread = true;
+		toJoin = threadStarted;
+		threadStarted = false;
+	}
+
+	if (toJoin)
+		join();
+
+	closeSocket();
+	return 1;
+}
+
 int UdpLayer::reset(struct sockaddr_in &local)
 {
 #ifdef DEBUG_UDP_LAYER
 	std::cerr << "UdpLayer::reset()" << std::endl;
 #endif
 
-	/* stop the old thread */
-	{
-		bdStackMutex stack(sockMtx);   /********** LOCK MUTEX *********/
-#ifdef DEBUG_UDP_LAYER
-		std::cerr << "UdpLayer::reset() setting stopThread flag" << std::endl;
-#endif
-		stopThread = true;
-	}
-#ifdef DEBUG_UDP_LAYER
-	std::cerr << "UdpLayer::reset() joining" << std::endl;
-#endif
+	close();
 
-	join(); 
-
-#ifdef DEBUG_UDP_LAYER
-	std::cerr << "UdpLayer::reset() closing socket" << std::endl;
-#endif
-	closeSocket();
-
-#ifdef DEBUG_UDP_LAYER
-	std::cerr << "UdpLayer::reset() resetting variables" << std::endl;
-#endif
 	laddr = local;
 	errorState = 0;
 	ttl = UDP_DEF_TTL;
 
-#ifdef DEBUG_UDP_LAYER
-	std::cerr << "UdpLayer::reset() opening socket" << std::endl;
-#endif
 	openSocket();
 
 	return 1 ;
@@ -227,6 +224,7 @@ int UdpLayer::closeSocket()
 	{
        		bdnet_close(sockfd);
 	}
+	sockfd = -1; /* the number may be given to another socket */
 
 	sockMtx.unlock(); /******** UNLOCK MUTEX *********/
 	return 1;
@@ -393,6 +391,7 @@ int UdpLayer::openSocket()
 	{
 		bdStackMutex stack(sockMtx);   /********** LOCK MUTEX *********/
 		stopThread = false;
+		threadStarted = true;
 	}
 	start();
 
